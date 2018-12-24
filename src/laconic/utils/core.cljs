@@ -1,26 +1,35 @@
 (ns laconic.utils.core
   (:require
+    [clojure.string :as string]
+    [dommy.core :as dommy :refer-macros [sel sel1]]
     [laconic.utils.dom :as dom]
+    [reagent.core :as r]
     [re-frame.core :as rf]))
 
 ; --------------------------------------------------------------
 ; Dependencies Management
 ; --------------------------------------------------------------
 
-#_
-{:pages {:loaded-deps ...
-         :main/deps deps-coll*
-         :admin/deps deps-coll*}}
-
-(defn load-deps! [deps]
-  (doseq [dep deps]
-    (case (:type dep)
-      :js  (dom/add-script! dep)
-      :css (dom/add-style! dep))))
-
 (defn unload-deps! [deps]
   (doseq [dep deps]
-    (dom/remove-elt! (keyword (str "#" (:id dep))))))
+    (dommy/remove! (sel1 (keyword (str "#" (:id dep)))))))
+
+(defn load-dep! [tag attrs loaded-count]
+  (let [elt (reduce-kv dommy/set-attr!
+                       (dommy/create-element tag)
+                       attrs)]
+    (dommy/append! (sel1 :body) elt)
+    (set! (.-onload elt) #(swap! loaded-count inc))))
+
+(defn load-deps! [deps loaded-count]
+  (doseq [dep deps]
+    (cond 
+      (string/includes? (:type dep) "javascript")
+      (load-dep! :script dep loaded-count)
+      
+      (string/includes? (:type dep) "css")
+      (load-dep! :link dep loaded-count))))
+      
 
 (defn with-deps
   "Loads a supplied sequence of Javascript or CSS files and renders a 
@@ -36,19 +45,26 @@
   [{:keys [deps loading loaded]}]
   (let [loaded-deps (rf/subscribe [:query [:page/loaded-deps]])
         depsset (set deps)
-        done? (atom false)]
+        loaded-count (r/atom 0)]
     (r/create-class
      {:component-did-mount
       (fn [_]
-        (let [not-loaded (remove @loaded-deps deps)
-              not-required (clojure.set/difference @loaded-deps depsset)]
-          (load-deps! not-loaded)
-          (unload-deps! not-required)
-          (rf/dispatch [:set [:page/loaded-deps] depsset])
-          (apply println "Loaded:" (map :id not-loaded))
-          (reset! done? true)))
+        (let [not-loaded (remove (or @loaded-deps #{}) deps)
+              not-required (clojure.set/difference (or @loaded-deps #{}) 
+                                                   depsset)]
+          (if (seq not-loaded)
+            (do
+              (load-deps! not-loaded loaded-count)
+              (apply println "Loaded:" (map :id not-loaded)))
+            (reset! loaded-count (count deps)))
+          (rf/dispatch [:set [:window/loaded-deps] depsset])
+          (unload-deps! not-required)))
       :reagent-render
       (fn [{:keys [deps loading loaded]}]
-        (if (empty? deps)
-          loaded
-          (if @done? loaded loading)))})))
+        (cond (empty? deps) 
+              loaded
+              
+              (= @loaded-count (count deps))
+              loaded
+              
+              :else loading))})))
