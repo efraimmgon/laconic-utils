@@ -57,7 +57,7 @@
               (load-deps! not-loaded loaded-count)
               (apply println "Loaded:" (map :id not-loaded)))
             (reset! loaded-count (count deps)))
-          (rf/dispatch [:set [:window/loaded-deps] depsset])
+          (rf/dispatch [:set [:page/loaded-deps] depsset])
           (unload-deps! not-required)))
       :reagent-render
       (fn [{:keys [deps loading loaded]}]
