@@ -24,19 +24,18 @@
             (string/split (name x) ".")))))
 
 (rf/reg-sub
-  base-interceptors
   :query
-  (fn [db [path]]
+  (fn [db [_ path]]
     (get-in db (vec-of-keys path))))
 
 (rf/reg-event-db
-  base-interceptors
   :set
+  base-interceptors
   (fn [db [path val]]
     (assoc-in db (vec-of-keys path) val)))
 
 (rf/reg-event-db
-  base-interceptors
   :update
-  (fn [db [path f]]
-    (update-in db (vec-of-keys path) f)))
+  base-interceptors
+  (fn [db [path f & args]]
+    (apply update-in db (vec-of-keys path) f args)))
