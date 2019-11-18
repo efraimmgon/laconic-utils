@@ -2,7 +2,6 @@
   (:require
     [clojure.string :as string]
     [dommy.core :as dommy :refer-macros [sel sel1]]
-    [laconic.utils.dom :as dom]
     [reagent.core :as r]
     [re-frame.core :as rf]))
 
