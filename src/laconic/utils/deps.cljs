@@ -18,9 +18,9 @@
 ; rely on re-frame to do it.
 
 (defonce config 
-  (atom {:deps/deps {}
-         :deps/dependency-graph []
-         :deps/loaded #{}}))
+  (r/atom {:deps/deps {}
+           :deps/dependency-graph []
+           :deps/loaded #{}}))
 
 (defn add-deps! 
   "Define a dependency for loading later. Takes a set of maps 
@@ -51,38 +51,44 @@
 (defn with-deps 
   "Assynchronously load dependencies to the window. Takes a set of deps.
   Its values must be the desired ids provided to `add-deps!`.
-  Arg map: {:deps dep-map*
-             :loading component
-             :loaded component}"
+  Arg map: {:deps dep-set       ; A set of dep/id
+            :loading component
+            :loaded component}"
   [{:keys [deps loading loaded]}]
   (when (seq deps)
+    ;; Unload deps from the page that won't be required.
     (unload-deps! (difference (:deps/loaded @config) deps))
     (swap! config update :deps/loaded intersection deps))
-  (r/create-class
-    {:component-did-mount
-     (fn [_]
-      (doseq [id (->> deps
-                      (select-keys (:deps/deps @config))
-                      (reduce-kv #(assoc % %2 (:dep/deps %3)) {})
-                      topological-sort)]
-        (assert (-> @config :deps/deps id) 
-                (str "Must declare " id " dependency first with `add-deps!`."))
-        (when-not ((:deps/loaded @config) id)
-          (let [dep (-> @config :deps/deps id)
-                [tag attrs] (if (:dep/src dep)
-                              [:script, {:id (:dep/id dep) :src (:dep/src dep)}]
-                              [:link,   {:id (:dep/id dep)  :href (:dep/href dep)}])
-                elt (reduce-kv dommy/set-attr!
-                               (dommy/create-element tag)
-                               attrs)]
-            (dommy/append! (sel1 :body) elt)
-            (set! (.-onload elt) #(do (swap! config update :deps/loaded 
-                                             conj id)
-                                      (println "Loaded:" id)))))))
-     :reagent-render
-     ;; NOTE: removed the keys from the fn, not sure this will alter
-     ;; the repainting of the component.
-     (fn [_]
-       (cond (empty? deps) loaded
-             (= deps (:deps/loaded @config)) loaded
-             :else loading))}))
+  (fn [{:keys [deps loading loaded]}]
+    (r/create-class
+      {:display-name "with-deps"
+       :component-did-mount
+       (fn [_]
+         (let [get-dep #(-> @config :deps/deps (get %))
+               dep-loaded? #(get (:deps/loaded @config) %)]
+               
+          (doseq [id (->> deps
+                          (select-keys (:deps/deps @config))
+                          (reduce-kv #(assoc % %2 (:dep/deps %3)) {})
+                          topological-sort)]
+            ;; Assert that the dep/id was declared (we need it to be declared
+            ;; so we can build the dep graph).
+            (assert (get-dep id)
+                    (str "Must declare " id " dependency first with `add-deps!`."))
+            (when-not (dep-loaded? id)
+              (let [dep (get-dep id)
+                    [tag attrs] (if (:dep/src dep)
+                                  [:script, {:id (:dep/id dep) :src (:dep/src dep)}]
+                                  [:link,   {:id (:dep/id dep)  :href (:dep/href dep)}])
+                    elt (reduce-kv dommy/set-attr!
+                                   (dommy/create-element tag)
+                                   attrs)]
+                (dommy/append! (sel1 :body) elt)
+                (set! (.-onload elt) #(do (swap! config update :deps/loaded 
+                                                 conj id)
+                                          (println "Loaded:" id))))))))
+       :reagent-render
+       (fn [{:keys [deps loading loaded]}]
+         (cond (empty? deps) loaded
+               (= deps (:deps/loaded @config)) loaded
+               :else loading))})))
